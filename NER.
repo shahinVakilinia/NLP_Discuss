@@ -1,0 +1,233 @@
+def install_and_import(package):
+    import importlib
+    try:
+        importlib.import_module(package)
+    except ImportError:
+        logging.warning('Installing Package')
+
+        import pip
+        pip.main(['install', package])
+    finally:
+        globals()[package] = importlib.import_module(package)
+
+install_and_import('nltk')
+install_and_import('spacy')
+install_and_import('datefinder')
+install_and_import('geotext')
+ 
+
+from google.colab import files
+import pandas as pd 
+import numpy as np
+import io
+import pip
+import docx
+import re
+import logging
+from geotext import GeoText
+
+logging.info('Importing Stage has been done successfully')
+
+
+
+uploaded = files.upload()
+Doc = docx.Document(io.BytesIO(uploaded['Sample_SOW7.docx']))
+
+logging.info('Data got extracted Successfully')
+#IF you have your file in a directory and you run this code locally (not colab) you can use glob and put the rest of the code in a for loop
+# import glob
+# txtfiles = []
+# for file in glob.glob("*.docx"):
+#     Doc = docx.Document(file)
+
+
+
+# Downloading and Loading required packages 
+nlp = spacy.load("en_core_web_sm")
+nltk.download('treebank')
+nltk.download('averaged_perceptron_tagger')
+nltk.download('maxent_ne_chunker')
+nltk.download('words')
+nltk.download('maxent_ne_chunker')
+nltk.download('words') 
+nltk.download('punkt')
+
+supplier_list = []
+
+def pre_process(text):
+    #remove tags
+    text=re.sub("<!--?.*?-->","",text)
+    # remove special characters
+    text=re.sub("(\\W)+"," ",text)
+    return text
+
+for i,x in enumerate(Doc.paragraphs):
+  for sent in nltk.sent_tokenize(x.text):  # Sentence Tokenization
+    sent = pre_process(sent)
+    for chunk in nltk.ne_chunk(nltk.pos_tag(nltk.word_tokenize(sent))): # Chunking, Part of Speech Tagging and word Tokenization  
+      if (hasattr(chunk, 'label') and chunk.label() == 'ORGANIZATION' and chunk[0][1]=='NNP' and chunk[0][0] not in ['ABC','Telus','SOW']):
+        nltk_list.append(chunk[0][0])
+
+supplier = nltk_list[1]
+print(supplier)
+
+# Examples
+
+ex = 'This Statement of Work No. 4000-08 (“SOW”) between ABC (“ABC”) and XYZ Ltd. (“Supplier”) is made pursuant to the Master Services Agreement between ABC Company and Supplier dated December 31, 3999 (the “Agreement”).'
+
+# A simple Annotation extraction and Chunking using NLTK library 
+tree = nltk.chunk.ne_chunk(nltk.pos_tag(ex.split()))
+from nltk.corpus import treebank
+print(tree)
+
+# A Simple Visulization of Named Entity Recignition and tagging using spacy library 
+
+from spacy import displacy
+displacy.render(nlp(str(ex)), jupyter=True, style='ent')
+
+
+for table in Doc.tables:
+  data = []
+  keys = None
+  for i, row in enumerate(table.rows):
+    text = (cell.text for cell in row.cells)
+    if i == 0:
+        keys = tuple(text)
+        continue
+    row_data = dict(zip(keys, text))
+    data.append(row_data)
+# Note that latest table in the doc is the most important one
+df = pd.DataFrame(data)
+print(df.iloc[0])
+
+
+start_p1 = 0
+end_p1 =len(Doc.paragraphs)
+
+if (end_p1>15):
+  for i,x in enumerate(Doc.paragraphs):
+    #print(x.text.lower().split())
+    if (len(x.text) < 20 and 'description' in x.text.lower().split()):
+      start_p1  = i
+    if (len(x.text) < 20 and 'definitions' in x.text.lower().split()):
+      end_p1 = i
+    # Another Potential Searching Area
+    # if (len(x.text) < 20 and 'services' in x.text.lower().split()):
+    #   start_p2 = i
+    # if (len(x.text) < 20 and 'schedule' in x.text.lower().split()):
+    #   end_p2 = i
+
+Vendor_list = []
+for i,x in enumerate(Doc.paragraphs[start_p1:end_p1]):
+  doc = nlp(x.text)
+  # Get the sentences in the passage of text
+  sentences = [sent.text for sent in doc.sents]
+  for sent in sentences:
+    sentp = nlp(sent)
+    for ent in sentp.ents:
+      if(ent.label_ == 'ORG' and str(ent.text[0:3])!='ABC' and ent.text not in ['SOW','Budget','the Supplier Service Representative']):
+         Vendor_list.append(str(ent.text))
+         print(ent.text)
+
+
+geo_list = []
+for i,x in enumerate(Doc.paragraphs):
+  doc = nlp(x.text)
+  sentences = [sent.text for sent in doc.sents]
+  for sent in sentences:
+    places = GeoText(sent)
+    if(len(list(places.cities))> 0 and 'Date' not in list(places.cities)  and 'March' not in list(places.cities)):
+      geo_list.extend(places.cities)
+
+if(len(geo_list) == 0):
+    geo_list.append('Canada')
+print(geo_list)
+
+
+
+for i,x in enumerate(Doc.paragraphs):
+  doc = nlp(x.text)
+  # Get the sentences in the passage of text
+  sentences = [sent.text for sent in doc.sents]
+  for sent in sentences:
+    sentp = nlp(sent)
+    for ent in sentp.ents:
+      if(ent.label_ == 'MONEY'):
+        print(''.join(filter(str.isdigit, ent.text)))  # Remove letters from the number 
+      # if(ent.label_ == 'ORG' and str(ent.text[0:3])!='ABC' and ent.text not in ['SOW','Budget']):
+      #    Vendor_list.append(str(ent.text))
+ 
+ 
+ Date_lst = []
+import datefinder
+for i,x in enumerate(Doc.paragraphs):
+  doc = nlp(x.text)
+  # Get the sentences in the passage of text
+  sentences = [sent.text for sent in doc.sents]
+  for sent in sentences:
+    matches = datefinder.find_dates(sent)
+    for match in matches:
+      Date_lst.append(match.strftime("%d-%b-%Y")) # Change the Datetime format
+
+Start_Time = Date_lst[0]
+End_Time = Date_lst[1]    
+    #sentp = nlp(sent)
+    #for ent in sentp.ents:
+
+
+
+      #if(ent.label_ == 'DATE'):
+      #  print(ent.text)  # Remove letters from the number 
+      # if(ent.label_ == 'ORG' and str(ent.text[0:3])!='ABC' and ent.text not in ['SOW','Budget']):
+      #    Vendor_list.append(str(ent.text))
+ 
+ 
+ 
+Money_lst = [] 
+Date_lst = []
+nltk_list = []
+
+
+for i,x in enumerate(Doc.paragraphs):
+  doc = nlp(x.text)
+  # Get the sentences in the passage of text
+  sentences = [sent.text for sent in doc.sents]
+  for sent in sentences:
+    ############## City-Location Recognition#################################
+    places = GeoText(sent)
+    if(len(list(places.cities))> 0 and 'Date' not in list(places.cities)  and 'March' not in list(places.cities)):
+      geo_list.extend(places.cities)
+    ############## Money Detection (Spacy)#################################
+    sentp = nlp(sent)
+    for ent in sentp.ents:
+      if(ent.label_ == 'MONEY'):
+        print(''.join(filter(str.isdigit, ent.text)))
+        Money_lst.append(''.join(filter(str.isdigit, ent.text)))
+    ################# Date Detection#################################
+    matches = datefinder.find_dates(sent)
+    for match in matches:
+      Date_lst.append(match.strftime("%d-%b-%Y")) # Change the Datetime format
+  
+ ###### NLTK Branch for supplier detection
+  for sent in nltk.sent_tokenize(x.text):  # Sentence Tokenization
+    sent = pre_process(sent)
+    for chunk in nltk.ne_chunk(nltk.pos_tag(nltk.word_tokenize(sent))): # Chunking, Part of Speech Tagging and word Tokenization  
+      if (hasattr(chunk, 'label') and chunk.label() == 'ORGANIZATION' and chunk[0][1]=='NNP' and chunk[0][0] not in ['ABC','Telus','SOW']):
+        nltk_list.append(chunk[0][0])
+
+
+if(len(geo_list) == 0):
+    geo_list.append('Canada')
+print(geo_list)
+
+try:
+   Budget = Money_lst[0]
+except:
+   Budget = 'Nan'  
+Start_Time = Date_lst[0]
+End_Time = Date_lst[1] 
+supplier = nltk_list[1]
+print(supplier)
+
+
+
